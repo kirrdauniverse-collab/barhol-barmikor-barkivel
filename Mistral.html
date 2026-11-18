@@ -1,0 +1,728 @@
+        <h2>📊 Város Statisztikák</h2>
+        <div id="statsPanel"></div>
+        
+        <div id="characterInfo">
+            <h2>👤 Karakter Infó</h2>
+            <div id="charDetails"></div>
+        </div>
+    </div>
+</div>
+
+<div id="hud">
+    <div class="resource">
+        <span class="resource-icon">✨</span>
+        <span>Inspiráció:</span>
+        <div class="resource-bar">
+            <div class="resource-fill eros-fill" id="erosBar"></div>
+        </div>
+        <span id="erosValue">0</span>
+    </div>
+    <div class="resource">
+        <span class="resource-icon">⚠️</span>
+        <span>Feszültség:</span>
+        <div class="resource-bar">
+            <div class="resource-fill tension-fill" id="tensionBar"></div>
+        </div>
+        <span id="tensionValue">0%</span>
+    </div>
+    <div class="stats">👥 Népesség: <span id="population">0</span></div>
+    <div class="stats">🏠 Épületek: <span id="buildingCount">0</span></div>
+    <div class="stats">📅 Nap: <span id="dayCount">1</span></div>
+</div>
+
+<div id="modeIndicator">Építési mód</div>
+
+<div id="eventLog">
+    <h3>📜 Események</h3>
+    <div id="eventList"></div>
+</div>
+
+<script>
+    // ==================== GAME STATE ====================
+    const gameState = {
+        eros: 100,
+        tension: 0,
+        day: 1,
+        population: [],
+        buildings: [],
+        selectedBuilding: null,
+        selectedCharacter: null,
+        grid: [],
+        gridSize: 20,
+        cellSize: 40
+    };
+
+    // ==================== BUILDING DEFINITIONS ====================
+    const buildingTypes = {
+        firepit: {
+            name: "🔥 Közös Tűzrakóhely",
+            cost: 20,
+            color: "#ff6b35",
+            size: 2,
+            bonus: { chemistry: 5, connection: 10 },
+            description: "Alapvető találkozási pont"
+        },
+        bathhouse: {
+            name: "🛁 Közös Fürdő",
+            cost: 50,
+            color: "#4ecdc4",
+            size: 3,
+            bonus: { chemistry: 15, intimacy: 20 },
+            description: "Közös fürdőzés és relaxáció"
+        },
+        dancehall: {
+            name: "💃 Táncház",
+            cost: 80,
+            color: "#ff6b9d",
+            size: 3,
+            bonus: { chemistry: 20, connection: 15 },
+            description: "Tánc és szórakozás"
+        },
+        garden: {
+            name: "🌹 Szerelmi Kert",
+            cost: 100,
+            color: "#95e1d3",
+            size: 2,
+            bonus: { chemistry: 25, intimacy: 15 },
+            description: "Romantikus séta és beszélgetés"
+        },
+        tavern: {
+            name: "🍺 Kocsma",
+            cost: 60,
+            color: "#f38181",
+            size: 2,
+            bonus: { chemistry: 10, connection: 20 },
+            description: "Ital és társaság"
+        },
+        villa: {
+            name: "🏡 Privát Villa",
+            cost: 200,
+            color: "#aa96da",
+            size: 3,
+            bonus: { chemistry: 30, intimacy: 35 },
+            description: "Privát, intim helyszín"
+        }
+    };
+
+    // ==================== CHARACTER SYSTEM ====================
+    const traits = [
+        "Romantikus", "Szabad Szellem", "Monogám", "Munkamániás",
+        "Kalandor", "Otthonülő", "Művész", "Hagyományőrző"
+    ];
+
+    const desires = [
+        "Figyelem", "Intimitás", "Kísértés", "Közösség", "Misztikum", "Kényeztetés"
+    ];
+
+    const names = [
+        "Alex", "Bella", "Carlos", "Diana", "Erik", "Fiona", "Gábor", "Hanna",
+        "István", "Júlia", "Károly", "Lilla", "Márk", "Nóra", "Olivér", "Petra"
+    ];
+
+    class Character {
+        constructor(x, y) {
+            this.id = Math.random().toString(36).substr(2, 9);
+            this.name = names[Math.floor(Math.random() * names.length)];
+            this.x = x;
+            this.y = y;
+            this.targetX = x;
+            this.targetY = y;
+            
+            // Needs (0-100)
+            this.energy = 80 + Math.random() * 20;
+            this.hygiene = 70 + Math.random() * 30;
+            this.connection = 50 + Math.random() * 30;
+            this.intimacy = 30 + Math.random() * 40;
+            
+            // Traits (pick 2-3)
+            const numTraits = 2 + Math.floor(Math.random() * 2);
+            this.traits = [];
+            while (this.traits.length < numTraits) {
+                const trait = traits[Math.floor(Math.random() * traits.length)];
+                if (!this.traits.includes(trait)) {
+                    this.traits.push(trait);
+                }
+            }
+            
+            // Desires (pick 2)
+            this.desires = [];
+            while (this.desires.length < 2) {
+                const desire = desires[Math.floor(Math.random() * desires.length)];
+                if (!this.desires.includes(desire)) {
+                    this.desires.push(desire);
+                }
+            }
+            
+            // Visual
+            this.color = `hsl(${Math.random() * 360}, 70%, 60%)`;
+            this.size = 15;
+            
+            // State
+            this.state = 'idle'; // idle, moving, socializing, intimate
+            this.partner = null;
+            this.activityTimer = 0;
+            this.erosGenerated = 0;
+        }
+        
+        update(deltaTime) {
+            // Decrease needs over time
+            this.energy -= deltaTime * 0.5;
+            this.hygiene -= deltaTime * 0.3;
+            this.connection -= deltaTime * 0.8;
+            this.intimacy -= deltaTime * 1.0;
+            
+            // Clamp values
+            this.energy = Math.max(0, Math.min(100, this.energy));
+            this.hygiene = Math.max(0, Math.min(100, this.hygiene));
+            this.connection = Math.max(0, Math.min(100, this.connection));
+            this.intimacy = Math.max(0, Math.min(100, this.intimacy));
+            
+            // State machine
+            if (this.activityTimer > 0) {
+                this.activityTimer -= deltaTime;
+                if (this.activityTimer <= 0) {
+                    this.state = 'idle';
+                    this.partner = null;
+                }
+            } else {
+                this.makeDecision();
+            }
+            
+            // Movement
+            if (this.state === 'moving') {
+                const dx = this.targetX - this.x;
+                const dy = this.targetY - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 2) {
+                    const speed = 50 * deltaTime;
+                    this.x += (dx / dist) * speed;
+                    this.y += (dy / dist) * speed;
+                } else {
+                    this.x = this.targetX;
+                    this.y = this.targetY;
+                    this.state = 'idle';
+                }
+            }
+            
+            // Generate tension if needs are low
+            if (this.intimacy < 30 || this.connection < 30) {
+                gameState.tension += deltaTime * 0.1;
+            }
+        }
+        
+        makeDecision() {
+            // Find nearest building that satisfies needs
+            const needsBuilding = this.intimacy < 50 || this.connection < 50;
+            
+            if (needsBuilding && gameState.buildings.length > 0) {
+                // Find best building
+                let bestBuilding = null;
+                let bestScore = -Infinity;
+                
+                for (const building of gameState.buildings) {
+                    const dx = building.x - this.x;
+                    const dy = building.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    let score = 0;
+                    if (building.type.bonus.intimacy && this.intimacy < 50) {
+                        score += building.type.bonus.intimacy;
+                    }
+                    if (building.type.bonus.connection && this.connection < 50) {
+                        score += building.type.bonus.connection;
+                    }
+                    score -= dist * 0.1; // Prefer closer buildings
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestBuilding = building;
+                    }
+                }
+                
+                if (bestBuilding) {
+                    this.targetX = bestBuilding.x + Math.random() * 40 - 20;
+                    this.targetY = bestBuilding.y + Math.random() * 40 - 20;
+                    this.state = 'moving';
+                    return;
+                }
+            }
+            
+            // Random wandering
+            if (Math.random() < 0.3) {
+                this.targetX = this.x + (Math.random() - 0.5) * 200;
+                this.targetY = this.y + (Math.random() - 0.5) * 200;
+                
+                // Keep in bounds
+                this.targetX = Math.max(50, Math.min(gameState.gridSize * gameState.cellSize - 50, this.targetX));
+                this.targetY = Math.max(50, Math.min(gameState.gridSize * gameState.cellSize - 50, this.targetY));
+                
+                this.state = 'moving';
+            }
+        }
+        
+        startSocialInteraction(partner, building) {
+            this.partner = partner;
+            partner.partner = this;
+            this.state = 'socializing';
+            partner.state = 'socializing';
+            this.activityTimer = 5 + Math.random() * 5;
+            partner.activityTimer = this.activityTimer;
+            
+            // Move to building
+            this.targetX = building.x;
+            this.targetY = building.y;
+            partner.targetX = building.x;
+            partner.targetY = building.y;
+            this.state = 'moving';
+            partner.state = 'moving';
+            
+            addEvent(`💕 ${this.name} és ${partner.name} együtt töltik az időt`);
+        }
+        
+        generateEros(building) {
+            let erosGain = 1;
+            
+            if (building.type.bonus.intimacy) {
+                erosGain += building.type.bonus.intimacy * 0.1;
+            }
+            if (building.type.bonus.connection) {
+                erosGain += building.type.bonus.connection * 0.05;
+            }
+            
+            // Chemistry bonus
+            const chemistry = this.calculateChemistry(this.partner);
+            erosGain *= (1 + chemistry / 100);
+            
+            gameState.eros += erosGain;
+            this.erosGenerated += erosGain;
+            
+            // Satisfy needs
+            if (building.type.bonus.intimacy) {
+                this.intimacy = Math.min(100, this.intimacy + building.type.bonus.intimacy * 0.5);
+                this.partner.intimacy = Math.min(100, this.partner.intimacy + building.type.bonus.intimacy * 0.5);
+            }
+            if (building.type.bonus.connection) {
+                this.connection = Math.min(100, this.connection + building.type.bonus.connection * 0.5);
+                this.partner.connection = Math.min(100, this.partner.connection + building.type.bonus.connection * 0.5);
+            }
+        }
+        
+        calculateChemistry(other) {
+            let chemistry = 50; // Base
+            
+            // Shared traits
+            const sharedTraits = this.traits.filter(t => other.traits.includes(t));
+            chemistry += sharedTraits.length * 10;
+            
+            // Shared desires
+            const sharedDesires = this.desires.filter(d => other.desires.includes(d));
+            chemistry += sharedDesires.length * 15;
+            
+            // Trait compatibility
+            if (this.traits.includes("Szabad Szellem") && other.traits.includes("Szabad Szellem")) {
+                chemistry += 20;
+            }
+            if (this.traits.includes("Monogám") && other.traits.includes("Monogám")) {
+                chemistry += 15;
+            }
+            
+            return Math.min(100, chemistry);
+        }
+        
+        draw(ctx) {
+            // Draw character
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw state indicator
+            if (this.state === 'socializing' || this.state === 'intimate') {
+                ctx.strokeStyle = '#ff6b9d';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                // Draw heart
+                ctx.fillStyle = '#ff6b9d';
+                ctx.font = '20px Arial';
+                ctx.fillText('❤️', this.x - 10, this.y - 25);
+            }
+            
+            // Draw name
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(this.name, this.x, this.y + this.size + 15);
+        }
+    }
+
+    // ==================== BUILDING SYSTEM ====================
+    class Building {
+        constructor(type, x, y) {
+            this.type = type;
+            this.x = x;
+            this.y = y;
+            this.occupants = [];
+        }
+        
+        draw(ctx) {
+            const size = this.type.size * gameState.cellSize;
+            
+            // Draw building base
+            ctx.fillStyle = this.type.color;
+            ctx.fillRect(this.x - size / 2, this.y - size / 2, size, size);
+            
+            // Draw border
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(this.x - size / 2, this.y - size / 2, size, size);
+            
+            // Draw icon
+            ctx.font = `${size * 0.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.type.name.split(' ')[0], this.x, this.y);
+        }
+    }
+
+    // ==================== EVENT SYSTEM ====================
+    const events = [
+        {
+            name: "💌 Titkos levél",
+            condition: () => gameState.population.length >= 3,
+            execute: () => {
+                const char = gameState.population[Math.floor(Math.random() * gameState.population.length)];
+                addEvent(`${char.name} szerelmes levelet kapott!`);
+                char.connection = Math.min(100, char.connection + 20);
+            }
+        },
+        {
+            name: "🎉 Fesztivál",
+            condition: () => gameState.eros > 200,
+            execute: () => {
+                addEvent("🎉 A város fesztivált rendez! Mindenki boldog!");
+                gameState.population.forEach(char => {
+                    char.connection = Math.min(100, char.connection + 30);
+                    char.intimacy = Math.min(100, char.intimacy + 20);
+                });
+                gameState.eros += 50;
+            }
+        },
+        {
+            name: "⚠️ Feszültség",
+            condition: () => gameState.tension > 50,
+            execute: () => {
+                addEvent("⚠️ A városban nő a feszültség!");
+                gameState.population.forEach(char => {
+                    if (Math.random() < 0.3) {
+                        char.connection = Math.max(0, char.connection - 20);
+                    }
+                });
+            }
+        }
+    ];
+
+    function checkEvents() {
+        for (const event of events) {
+            if (event.condition() && Math.random() < 0.01) {
+                event.execute();
+                break;
+            }
+        }
+    }
+
+    function addEvent(text) {
+        const eventList = document.getElementById('eventList');
+        const eventDiv = document.createElement('div');
+        eventDiv.className = 'event';
+        eventDiv.textContent = `[${gameState.day}. nap] ${text}`;
+        eventList.insertBefore(eventDiv, eventList.firstChild);
+        
+        // Keep only last 10 events
+        while (eventList.children.length > 10) {
+            eventList.removeChild(eventList.lastChild);
+        }
+    }
+
+    // ==================== RENDERING ====================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function render() {
+        // Clear canvas
+        ctx.fillStyle = '#98D8C8';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw grid
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= gameState.gridSize; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * gameState.cellSize, 0);
+            ctx.lineTo(i * gameState.cellSize, gameState.gridSize * gameState.cellSize);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(0, i * gameState.cellSize);
+            ctx.lineTo(gameState.gridSize * gameState.cellSize, i * gameState.cellSize);
+            ctx.stroke();
+        }
+        
+        // Draw buildings
+        for (const building of gameState.buildings) {
+            building.draw(ctx);
+        }
+        
+        // Draw characters
+        for (const char of gameState.population) {
+            char.draw(ctx);
+        }
+        
+        // Draw building preview
+        if (gameState.selectedBuilding && mousePos.x && mousePos.y) {
+            const size = gameState.selectedBuilding.size * gameState.cellSize;
+            ctx.fillStyle = gameState.selectedBuilding.color + '80';
+            ctx.fillRect(mousePos.x - size / 2, mousePos.y - size / 2, size, size);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(mousePos.x - size / 2, mousePos.y - size / 2, size, size);
+            ctx.setLineDash([]);
+        }
+    }
+
+    // ==================== GAME LOOP ====================
+    let lastTime = Date.now();
+
+    function gameLoop() {
+        const currentTime = Date.now();
+        const deltaTime = (currentTime - lastTime) / 1000;
+        lastTime = currentTime;
+        
+        // Update characters
+        for (const char of gameState.population) {
+            char.update(deltaTime);
+        }
+        
+        // Check for social interactions
+        checkSocialInteractions();
+        
+        // Update day counter
+        gameState.day += deltaTime * 0.1;
+        
+        // Check events
+        checkEvents();
+        
+        // Decrease tension over time
+        gameState.tension = Math.max(0, gameState.tension - deltaTime * 0.5);
+        
+        // Update UI
+        updateUI();
+        
+        // Render
+        render();
+        
+        requestAnimationFrame(gameLoop);
+    }
+
+    function checkSocialInteractions() {
+        for (const char of gameState.population) {
+            if (char.state === 'idle' && char.intimacy < 50) {
+                // Find nearby character
+                for (const other of gameState.population) {
+                    if (other === char || other.state !== 'idle') continue;
+                    
+                    const dx = other.x - char.x;
+                    const dy = other.y - char.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < 100) {
+                        // Find nearby building
+                        let nearestBuilding = null;
+                        let minDist = Infinity;
+                        
+                        for (const building of gameState.buildings) {
+                            const bdx = building.x - char.x;
+                            const bdy = building.y - char.y;
+                            const bdist = Math.sqrt(bdx * bdx + bdy * bdy);
+                            
+                            if (bdist < minDist) {
+                                minDist = bdist;
+                                nearestBuilding = building;
+                            }
+                        }
+                        
+                        if (nearestBuilding) {
+                            char.startSocialInteraction(other, nearestBuilding);
+                            
+                            // Generate eros after some time
+                            setTimeout(() => {
+                                if (char.state === 'socializing') {
+                                    char.generateEros(nearestBuilding);
+                                }
+                            }, 3000);
+                            
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ==================== UI ====================
+    function updateUI() {
+        document.getElementById('erosValue').textContent = Math.floor(gameState.eros);
+        document.getElementById('erosBar').style.width = `${Math.min(100, gameState.eros / 10)}%`;
+        
+        document.getElementById('tensionValue').textContent = `${Math.floor(gameState.tension)}%`;
+        document.getElementById('tensionBar').style.width = `${gameState.tension}%`;
+        
+        document.getElementById('population').textContent = gameState.population.length;
+        document.getElementById('buildingCount').textContent = gameState.buildings.length;
+        document.getElementById('dayCount').textContent = Math.floor(gameState.day);
+        
+        // Update stats
+        const statsPanel = document.getElementById('statsPanel');
+        const avgIntimacy = gameState.population.reduce((sum, c) => sum + c.intimacy, 0) / gameState.population.length || 0;
+        const avgConnection = gameState.population.reduce((sum, c) => sum + c.connection, 0) / gameState.population.length || 0;
+        
+        statsPanel.innerHTML = `
+            <div class="stats">💕 Átlag Intimitás: ${Math.floor(avgIntimacy)}%</div>
+            <div class="stats">🤝 Átlag Kapcsolódás: ${Math.floor(avgConnection)}%</div>
+        `;
+        
+        // Update building buttons
+        updateBuildingPanel();
+    }
+
+    function updateBuildingPanel() {
+        const panel = document.getElementById('buildingPanel');
+        panel.innerHTML = '';
+        
+        for (const [key, type] of Object.entries(buildingTypes)) {
+            const btn = document.createElement('button');
+            btn.className = 'building-btn';
+            btn.innerHTML = `
+                <div>${type.name}</div>
+                <div class="building-cost">✨ ${type.cost} Inspiráció</div>
+                <div style="font-size: 11px; margin-top: 5px; opacity: 0.8;">${type.description}</div>
+            `;
+            btn.disabled = gameState.eros < type.cost;
+            btn.onclick = () => selectBuilding(type);
+            panel.appendChild(btn);
+        }
+    }
+
+    function selectBuilding(type) {
+        gameState.selectedBuilding = type;
+        document.getElementById('modeIndicator').style.display = 'block';
+        document.getElementById('modeIndicator').textContent = `Építés: ${type.name}`;
+    }
+
+    // ==================== INPUT HANDLING ====================
+    const mousePos = { x: null, y: null };
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mousePos.x = e.clientX - rect.left;
+        mousePos.y = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        if (gameState.selectedBuilding) {
+            // Place building
+            if (gameState.eros >= gameState.selectedBuilding.cost) {
+                const building = new Building(gameState.selectedBuilding, x, y);
+                gameState.buildings.push(building);
+                gameState.eros -= gameState.selectedBuilding.cost;
+                
+                addEvent(`🏗️ ${gameState.selectedBuilding.name} felépült!`);
+                
+                gameState.selectedBuilding = null;
+                document.getElementById('modeIndicator').style.display = 'none';
+            }
+        } else {
+            // Select character
+            for (const char of gameState.population) {
+                const dx = char.x - x;
+                const dy = char.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < char.size) {
+                    showCharacterInfo(char);
+                    break;
+                }
+            }
+        }
+    });
+
+    function showCharacterInfo(char) {
+        const infoPanel = document.getElementById('characterInfo');
+        const details = document.getElementById('charDetails');
+        
+        infoPanel.style.display = 'block';
+        details.innerHTML = `
+            <h3>${char.name}</h3>
+            <div class="need-bar">
+                <span class="need-label">⚡ Energia:</span>
+                <div class="need-bar-container">
+                    <div class="need-fill" style="width: ${char.energy}%; background: #ffd700;"></div>
+                </div>
+            </div>
+            <div class="need-bar">
+                <span class="need-label">🧼 Higiénia:</span>
+                <div class="need-bar-container">
+                    <div class="need-fill" style="width: ${char.hygiene}%; background: #4ecdc4;"></div>
+                </div>
+            </div>
+            <div class="need-bar">
+                <span class="need-label">🤝 Kapcsolódás:</span>
+                <div class="need-bar-container">
+                    <div class="need-fill" style="width: ${char.connection}%; background: #95e1d3;"></div>
+                </div>
+            </div>
+            <div class="need-bar">
+                <span class="need-label">💕 Intimitás:</span>
+                <div class="need-bar-container">
+                    <div class="need-fill" style="width: ${char.intimacy}%; background: #ff6b9d;"></div>
+                </div>
+            </div>
+            <h3>Személyiségjegyek</h3>
+            <div>${char.traits.map(t => `<span class="trait">${t}</span>`).join('')}</div>
+            <h3>Vágyak</h3>
+            <div>${char.desires.map(d => `<span class="trait">${d}</span>`).join('')}</div>
+            <div class="stats" style="margin-top: 15px;">✨ Generált Inspiráció: ${Math.floor(char.erosGenerated)}</div>
+        `;
+    }
+
+    // ==================== INITIALIZATION ====================
+    function init() {
+        // Create initial population
+        for (let i = 0; i < 8; i++) {
+            const x = 100 + Math.random() * (gameState.gridSize * gameState.cellSize - 200);
+            const y = 100 + Math.random() * (gameState.gridSize * gameState.cellSize - 200);
+            gameState.population.push(new Character(x, y));
+        }
+        
+        addEvent("🌅 A város felébred! Kezdődik az élet...");
+        
+        // Start game loop
+        gameLoop();
+    }
+
+    init();
+</script>
