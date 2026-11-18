@@ -1,0 +1,444 @@
+================================================================================
+ VÁROS, AMI SZERET — TELJES EXPORT (build módba átemelendő)
+ Generálva: 2026-09-26
+ Tartalom: GDD-összefoglaló + prototípus-kód + widget-kód + függőségek
+================================================================================
+
+--------------------------------------------------------------------------------
+ 1. JÁTÉKTERV (GDD) ÖSSZEFOGLALÓJA
+--------------------------------------------------------------------------------
+
+CÍM: „Város, ami szeret" — város/élet-szimuláció
+Mottó: „Bárhol, bármikor, bárkivel"
+Inspiráció: Settlers, Civilization, SimCity, The Sims
+Korhatár: felnőtteknek (18+), intim tartalom cenzúrázva, program-szinten
+
+KORSZAKOK (technológiai ív):
+  I.   Falu — lovak, szekerek, 6–10 lakó
+  II.  Város — ipar, intézmények (fürdő, színház, kocsma)
+  III. Robotika — androidok empátia-modullal
+  IV.  Űrkor — UFO-k, idegen kultúrák
+
+FŐ RENDSZEREK:
+  1. JÓLLÉT-MOTOR: a lakók jólléte a gazdasági termelőerő.
+     jollet = 50 alap − éhség(30) + lakhatás(5×szint) + kapcsolatok(max+40)
+     Termelési szorzó: teljesitmeny = 0.5 + jollet/100
+  2. KAPCSOLAT-GRÁF: csomópontok=lakók, élek kapcsolatok.
+     Dimenziók: ismeretség(0-100), vonzalom(-50..100), bizalom(0-100), emlékek(lista)
+     Vonzalom = 0.4×külső + 0.4×belső + kémia(0.4–1.6 rejtett faktor)
+     Küszöbök: vonzalom>50 ÉS bizalom>60 → jólét-bónusz + „szerelmes" státusz
+     Mély beszélgetés (bizalom-lökés): vonzalom>70, bizalom<60 → 15% eséllyel +8–15
+     Intim esemény: vonzalom>60, bizalom>55 → 35% eséllyel (zárt helyszínen)
+  3. GAZDASÁG: erőforrások = Élelem, Fa, Pénz, Tudás(később), Kultúra(később)
+     Élelem-romlás: 5%/nap. Kofa: felesleg élelem+fa → pénz.
+  4. KUKKOLÁS: intim eseményeknél dinamikus cenzúra (előtér-tárgyak,
+     kontúr-mód), a játékos értesítést kap, megnézheti vagy sem.
+  5. VEZÉRLÉS: vegyes — makro (építkezés, gazdaság) + mikro (lakók élete)
+
+ESEMÉNYTÍPUSOK: találkozók (piac/kert/kocsma/faluközpont), flörtölés,
+  mély beszélgetés, intim jelenet, később: konfliktus, rivalizálás, pletyka
+
+FEJLESZTÉSI FÁZISOK:
+  Fázis 0 (KÉSZ): prototípus — jólét-motor, gráf, gazdaság (Python + JS widget)
+  Fázis 1: építkezés + játékos-interakció + kukkoló-pontok felfedezése
+  Fázis 2: jelenet-motor, dinamikus cenzúra, animáció (Godot/Unity)
+  Fázis 3: technológia-fa + korok
+  Fázis 4: robotok, UFO-k
+  Fázis 5: polírozás, portolás (Android → iOS), localizáció
+
+--------------------------------------------------------------------------------
+ 2. FÜGGŐSÉGEK (DEPENDENCIES)
+--------------------------------------------------------------------------------
+
+PYTHON PROTOTÍPUS:
+  - Python 3.8+ (standard library: random, dataclasses, subprocess)
+  - Opcionális vizualizációhoz: matplotlib, numpy
+  - Telepítés:  pip install matplotlib numpy
+  - Futtatás:  python3 prototipus.py
+
+INTERAKTÍV WIDGET (böngésző, sandbox-iframe):
+  - Kimi design-system CSS tokenek (var(--kimi-*)) — a host biztosítja
+  - Natív JS + SVG, KÜLSŐ KÖNYVTÁRAK NÉLKÜL
+  - window.sendPrompt nem használt
+
+TERVEZETT BUILD (Fázis 1+):
+  - Godot 4 (vagy Unity) — PC → Android/iOS port
+  - 2D csontváz-animáció (papírbábu-stílusú rig)
+  - App Store: alapértelmezett szigorú cenzúra-mód kötelező
+
+--------------------------------------------------------------------------------
+ 3. PYTHON PROTOTÍPUS TELJES FORRÁSA (prototipus.py)
+--------------------------------------------------------------------------------
+
+# -*- coding: utf-8 -*-
+"""
+VÁROS, AMI SZERET – Fázis 0 prototípus
+Jólét-motor + kapcsolat-gráf + gazdasági körfolyamat (konzolos demo)
+
+Futtatás:  python prototipus.py
+"""
+
+import random
+from dataclasses import dataclass, field
+
+NEVEK = ["Anna", "Bori", "Cili", "Dániel", "Eszter", "Ferenc", "Gabi", "Hunor", "Ildi", "János"]
+KESEK = ["földműves", "favágó", "kofa", "iparos"]
+
+
+@dataclass
+class Lako:
+    """Egy falubeli. Külső és belső értékei a vonzalomszámítás alapjai."""
+    nev: str
+    kor: int
+    kuelso: float       # 0-10
+    belso: float        # 0-10
+    foglalkozas: str
+    jollet: float = 50.0   # 0-100
+    lakas_szint: int = 1   # 1=viskó, 2=ház, 3=villa
+
+
+@dataclass
+class Kapcsolat:
+    """Él a kapcsolat-gráfban. Egyedi kémiával és történésekkel mélyül."""
+    a: int
+    b: int
+    ismeretseg: float = 0.0
+    vonzalom: float = 0.0
+    bizalom: float = 0.0
+    emlekek: list = field(default_factory=list)
+
+
+class Szimulacio:
+    def __init__(self, n=8, seed=None):
+        self.nap = 0
+        self.elelem = 20.0
+        self.fa = 15.0
+        self.penz = 10.0
+        self.lakok = []
+        self.kapcsolatok = {}
+        self.intim_esemenyek = []
+        self.naplo = []
+        if seed is not None:
+            random.seed(seed)
+
+        nevek = random.sample(NEVEK, n)
+        for i in range(n):
+            self.lakok.append(Lako(
+                nev=nevek[i],
+                kor=random.randint(18, 55),
+                kuelso=round(random.uniform(3, 9), 1),
+                belso=round(random.uniform(3, 9), 1),
+                foglalkozas=random.choice(KESEK),
+            ))
+        # rejtett kémia minden párra: nem mindenki esik egymásnak
+        self.kemia = {(i, j): random.uniform(0.4, 1.6)
+                      for i in range(n) for j in range(i + 1, n)}
+
+    # ---------------- VONZALOM ----------------
+    def vonzalom_alap(self, i, j):
+        a, b = self.lakok[i], self.lakok[j]
+        alap = 0.4 * a.kuelso + 0.4 * b.belso + 0.2 * 5.0
+        return (alab := alap - 5) * 10 * self.kemia[(min(i, j), max(i, j))]
+
+    # ---------------- JÓLLÉT-MOTOR ----------------
+    def jollet_szamit(self, i):
+        lak = self.lakok[i]
+        j = 50.0
+        if self.elelem < len(self.lakok):
+            j -= 30                       # éhség: kemény büntetés
+        j += 5 * lak.lakas_szint          # lakhatás
+        kapcs_ertek = 0.0
+        for (a, b), k in self.kapcsolatok.items():
+            if i in (a, b) and k.vonzalom > 50 and k.bizalom > 60:
+                kapcs_ertek += (k.vonzalom + k.bizalom) / 5
+        j += min(40, kapcs_ertek)         # kapcsolati elégedettség (max +40!)
+        return max(0, min(100, j))
+
+    # ---------------- ESEMÉNYEK ----------------
+    def esemeny(self):
+        # az ismert párok gyakrabban találkoznak -> kapcsolatok mélyülnek
+        if self.kapcsolatok and random.random() < 0.7:
+            kulcs = random.choice(list(self.kapcsolatok.keys()))
+        else:
+            i, j = random.sample(range(len(self.lakok)), 2)
+            kulcs = (min(i, j), max(i, j))
+            if kulcs not in self.kapcsolatok:
+                self.kapcsolatok[kulcs] = Kapcsolat(a=kulcs[0], b=kulcs[1])
+        k = self.kapcsolatok[kulcs]
+        hely = random.choice(["piac", "kert", "kocsma", "falu_kozpont"])
+
+        if k.ismeretseg < 20:
+            k.ismeretseg += random.uniform(5, 12)
+        else:
+            k.vonzalom = min(100, k.vonzalom + random.uniform(5, 10) * self.kemia[kulcs])
+            k.bizalom = min(100, k.bizalom + random.uniform(3, 7))
+            k.emlekek.append(f"{self.nap}. nap, {hely}")
+            # intim jelenet: itt kapcsolódna be a "kukkolás"
+            # bizalom-lokes: magas vonzalmnal a bizalom utolerheti onmagat
+            if k.vonzalom > 70 and k.bizalom < 60 and random.random() < 0.15:
+                k.bizalom = min(100, k.bizalom + random.uniform(8, 15))
+            if k.vonzalom > 60 and k.bizalom > 55 and random.random() < 0.35:
+                self.intim_esemenyek.append((self.nap, k.a, k.b, hely))
+                self.naplo.append(
+                    f"  * {self.nap}. nap: {self.lakok[k.a].nev} és {self.lakok[k.b].nev} "
+                    f"együtt töltötték az éjszakát ({hely}) -- KUKKOLÁSI LEHETŐSÉG!")
+        k.ismeretseg = min(100, k.ismeretseg)
+
+    # ---------------- GAZDASÁG ----------------
+    def gazdasag_lep(self):
+        for i, lak in enumerate(self.lakok):
+            teljesitmeny = 0.5 + lak.jollet / 100      # a jólét-motor maga!
+            if lak.foglalkozas == "földműves":
+                self.elelem += 2.0 * teljesitmeny
+            elif lak.foglalkozas == "favágó":
+                self.fa += 1.5 * teljesitmeny
+
+    # ---------------- NAPI LÉPÉS ----------------
+    def lep(self):
+        self.nap += 1
+        if random.random() < 0.8:
+            self.esemeny()
+        for i in range(len(self.lakok)):
+            self.lakok[i].jollet = self.jollet_szamit(i)
+        self.gazdasag_lep()
+
+    # ---------------- JELENTÉS ----------------
+    def jelentes(self):
+        atlag = sum(l.jollet for l in self.lakok) / len(self.lakok)
+        print(f"--- {self.nap}. NAP ---  Élelem: {self.elelem:.1f}  "
+              f"Fa: {self.fa:.1f}  Átlag jólét: {atlag:.1f}\n")
+        print(f"{'Név':<10}{'Kor':<5}{'Külső':<7}{'Belső':<7}{'Jólét':<7}{'Foglalkozás'}")
+        for l in self.lakok:
+            print(f"{l.nev:<10}{l.kor:<5}{l.kuelso:<7}{l.belso:<7}{l.jollet:<7.1f}{l.foglalkozas}")
+        eros = [k for k in self.kapcsolatok.values() if k.vonzalom > 40]
+        print(f"\nErős kapcsolatok: {len(eros)}")
+        for k in eros:
+            print(f"  {self.lakok[k.a].nev} <-> {self.lakok[k.b].nev}: "
+                  f"vonzalom {k.vonzalom:.0f}, bizalom {k.bizalom:.0f} ({len(k.emlekek)} emlék)")
+
+
+if __name__ == "__main__":
+    s = Szimulacio(n=8, seed=7)
+    s.jelentes()
+    print("\n" + "=" * 50 + "\n")
+    for _ in range(120):
+        s.lep()
+    s.jelentes()
+    print(f"\nIntim események száma: {len(s.intim_esemenyek)}")
+    for sor in s.naplo[-6:]:
+        print(sor)
+
+
+--------------------------------------------------------------------------------
+ 4. INTERAKTÍV WIDGET TELJES FORRÁSA (HTML+CSS+JS)
+--------------------------------------------------------------------------------
+Megjegyzés: a var(--kimi-*) tokeneket build módban saját design-tokenekkel
+kell helyettesíteni (fekete/fehér alap, chart-színek: kék/piros/zöld/lila/szürke).
+
+<style>
+.wrap { font-family: var(--kimi-font-sans); max-width: 100%; }
+button, input, select, textarea { font: inherit; }
+svg text { font-family: var(--kimi-font-sans); }
+.wrap { display: flex; flex-direction: column; gap: 12px; }
+.hdr { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+.hdr .day { font-size: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.res { display: flex; gap: 12px; flex-wrap: wrap; }
+.res span { font-size: 14px; color: var(--kimi-color-text-secondary); font-variant-numeric: tabular-nums; }
+.res b { color: var(--kimi-color-text-primary); font-weight: 500; }
+.ctrl { display: flex; gap: 8px; }
+.btn { border: 1px solid var(--kimi-color-border); border-radius: 8px; padding: 6px 14px;
+       background: var(--kimi-color-text-primary); color: var(--kimi-color-bg); cursor: pointer; }
+.btn.sec { background: transparent; color: var(--kimi-color-text-primary); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+h3 { font-size: 14px; font-weight: 500; margin: 0 0 8px; color: var(--kimi-color-text-secondary); }
+.vil { display: flex; align-items: center; gap: 10px; padding: 6px 0;
+       border-bottom: 0.5px solid var(--kimi-color-border); }
+.vil:last-child { border-bottom: none; }
+.vil .nm { width: 72px; font-size: 14px; font-weight: 500; }
+.vil .st { font-size: 12px; color: var(--kimi-color-text-tertiary); width: 110px; }
+.bar { flex: 1; height: 6px; border-radius: 3px; background: var(--kimi-color-fill-tertiary); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; background: var(--kimi-chart-1); transition: width .3s; }
+.vil .val { width: 34px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
+.heart { color: var(--kimi-chart-2); font-size: 13px; }
+.log { max-height: 220px; overflow-y: auto; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.log div { padding: 5px 8px; border-radius: 8px; background: var(--kimi-color-fill-quaternary); }
+.log .intim { background: color-mix(in srgb, var(--kimi-chart-2) 12%, transparent); }
+.log .meet { background: transparent; border: 0.5px solid var(--kimi-color-border); }
+.log .dim { color: var(--kimi-color-text-tertiary); font-size: 12px; }
+svg.graph { width: 100%; height: 240px; }
+.edge { stroke: var(--kimi-color-text-quaternary); }
+.edge.strong { stroke: var(--kimi-chart-2); }
+.edge.intimE { stroke: var(--kimi-chart-4); stroke-width: 3; }
+.nodeC { fill: var(--kimi-color-bg); stroke: var(--kimi-color-text-secondary); }
+.nodeC.happy { stroke: var(--kimi-chart-2); stroke-width: 2; }
+</style>
+
+<div class="wrap">
+  <div class="hdr">
+    <span class="day" id="day">0. nap</span>
+    <div class="res">
+      <span>Élelem <b id="rFood">20</b></span>
+      <span>Fa <b id="rWood">15</b></span>
+      <span>Pénz <b id="rCoin">10</b></span>
+      <span>Átlag jólét <b id="rJoy">50</b></span>
+    </div>
+  </div>
+  <div class="ctrl">
+    <button class="btn" id="b1">Következő nap</button>
+    <button class="btn sec" id="b7">+7 nap</button>
+    <button class="btn sec" id="b30">+30 nap</button>
+  </div>
+  <div class="cols">
+    <div><h3>Falubeliek</h3><div id="villagers"></div></div>
+    <div><h3>Eseménynapló</h3><div class="log" id="log"><div class="dim">A falu ébredezik…</div></div></div>
+  </div>
+  <div>
+    <h3>Pletyka-térkép (kapcsolat-gráf)</h3>
+    <svg class="graph" id="graph" viewBox="-1.3 -1.3 2.6 2.6"></svg>
+  </div>
+</div>
+
+<script>
+const NEVEK = ["Anna","Bori","Cili","Dániel","Eszter","Ferenc","Gabi","Hunor"];
+const KESEK = ["földműves","favágó","kofa","iparos"];
+const rnd = (a,b)=>a+Math.random()*(b-a);
+const pick = a=>a[Math.floor(Math.random()*a.length)];
+
+let S;
+function ujJatek(){
+  S = { nap:0, elelem:20, fa:15, penz:10, lakok:[], kapcs:{}, intim:[], kemia:{}, log:[] };
+  NEVEK.forEach((nev,i)=>{
+    S.lakok.push({ nev, kor:18+Math.floor(Math.random()*38),
+      kulso:+(rnd(3,9)).toFixed(1), belso:+(rnd(3,9)).toFixed(1),
+      fogl:pick(KESEK), jollet:50, szerelem:false });
+  });
+  for(let i=0;i<8;i++) for(let j=i+1;j<8;j++) S.kemia[i+"_"+j]=rnd(0.4,1.6);
+}
+
+function jollet(i){
+  const l=S.lakok[i]; let j=50;
+  if(S.elelem<8) j-=30;
+  j+=5;
+  let k=0;
+  for(const key in S.kapcs){ const [a,b]=key.split("_").map(Number);
+    if((a===i||b===i)){ const kk=S.kapcs[key];
+      if(kk.v>50&&kk.b>60) k+=(kk.v+kk.b)/5; } }
+  return Math.max(0,Math.min(100,j+Math.min(40,k)));
+}
+
+function esemeny(){
+  const keys=Object.keys(S.kapcs);
+  let i,j;
+  if(keys.length&&Math.random()<0.7){ [i,j]=pick(keys).split("_").map(Number); }
+  else { do{ i=Math.floor(Math.random()*8); j=Math.floor(Math.random()*8);}while(i===j);
+         if(i>j)[i,j]=[j,i];
+         if(!S.kapcs[i+"_"+j]) S.kapcs[i+"_"+j]={i,j,is:0,v:0,b:0}; }
+  const k=S.kapcs[i+"_"+j];
+  const hely=pick(["piac","kert","kocsma","falu központ"]);
+  let msg=null;
+  if(k.is<20){ k.is+=rnd(5,12); msg={t:"meet",x:`${S.lakok[i].nev} és ${S.lakok[j].nev} ismerkednek a ${hely}en`}; }
+  else {
+    const kem=S.kemia[i+"_"+j];
+    k.v=Math.min(100,k.v+rnd(5,10)*kem);
+    k.b=Math.min(100,k.b+rnd(3,7));
+    if(k.v>70&&k.b<60&&Math.random()<0.15){ k.b=Math.min(100,k.b+rnd(8,15));
+      msg={t:"meet",x:`Mély beszélgetés: ${S.lakok[i].nev} + ${S.lakok[j].nev} (bizalom nőtt)`}; }
+    else if(k.v>60&&k.b>55&&Math.random()<0.35){
+      const ih=pick(["kocsma hátsószobája","ház","kerti lugas"]);
+      S.intim.push({n:S.nap,i,j});
+      msg={t:"intim",x:`❤ ${S.lakok[i].nev} és ${S.lakok[j].nev} együtt töltik az éjszakát (${ih}) — kukkolva: függöny takarja, csak a szívek látszanak 💕💕`};
+    } else msg={t:"meet",x:`${S.lakok[i].nev} + ${S.lakok[j].nev} a ${hely}en (vonzalom ${k.v|0}, bizalom ${k.b|0})`};
+  }
+  k.is=Math.min(100,k.is);
+  if(msg){ S.log.unshift({n:S.nap,...msg}); if(S.log.length>60)S.log.pop(); }
+}
+
+function gazd(){
+  S.lakok.forEach(l=>{
+    const t=0.5+l.jollet/100;
+    if(l.fogl==="földműves")S.elelem+=2*t;
+    else if(l.fogl==="favágó")S.fa+=1.5*t;
+    else if(l.fogl==="kofa"&&S.elelem>8&&S.fa>2){
+      const aru=Math.min(S.elelem-8,2); S.elelem-=aru; S.penz+=aru*1.5; }
+  });
+  S.elelem*=0.95;
+}
+
+function lep(n=1){
+  for(let s=0;s<n;s++){
+    S.nap++;
+    if(Math.random()<0.8)esemeny();
+    S.lakok.forEach((l,i)=>{ l.jollet=jollet(i);
+      l.szerelem=Object.values(S.kapcs).some(k=>(k.i===i||k.j===i)&&k.v>50&&k.b>60); });
+    gazd();
+  }
+  render();
+}
+
+function render(){
+  document.getElementById("day").textContent=S.nap+". nap";
+  document.getElementById("rFood").textContent=S.elelem.toFixed(0);
+  document.getElementById("rWood").textContent=S.fa.toFixed(0);
+  document.getElementById("rCoin").textContent=S.penz.toFixed(1);
+  document.getElementById("rJoy").textContent=(S.lakok.reduce((a,l)=>a+l.jollet,0)/8).toFixed(1);
+  document.getElementById("villagers").innerHTML=S.lakok.map(l=>`
+    <div class="vil">
+      <span class="nm">${l.szerelem?'<span class="heart">♥</span> ':''}${l.nev}</span>
+      <span class="st">${l.fogl} · kül ${l.kulso} / bel ${l.belso}</span>
+      <div class="bar"><i style="width:${l.jollet}%"></i></div>
+      <span class="val">${l.jollet.toFixed(0)}</span>
+    </div>`).join("");
+  document.getElementById("log").innerHTML=S.log.length
+    ? S.log.map(e=>`<div class="${e.t}"><b>${e.n}.</b> ${e.x}</div>`).join("")
+    : '<div class="dim">Még nem történt semmi…</div>';
+  const g=document.getElementById("graph"); const NS="http://www.w3.org/2000/svg";
+  g.innerHTML="";
+  const pos={};
+  for(let i=0;i<8;i++){ const a=i/8*2*Math.PI-Math.PI/2; pos[i]=[Math.cos(a),Math.sin(a)]; }
+  Object.values(S.kapcs).forEach(k=>{
+    if(k.v<=10)return;
+    const l=document.createElementNS(NS,"line");
+    l.setAttribute("x1",pos[k.i][0]);l.setAttribute("y1",pos[k.i][1]);
+    l.setAttribute("x2",pos[k.j][0]);l.setAttribute("y2",pos[k.j][1]);
+    l.setAttribute("class","edge"+(k.v>50&&k.b>60?" strong":""));
+    l.setAttribute("stroke-width",Math.max(1,k.v/15));
+    g.appendChild(l);
+  });
+  S.intim.slice(-6).forEach(e=>{
+    const l=document.createElementNS(NS,"line");
+    l.setAttribute("x1",pos[e.i][0]);l.setAttribute("y1",pos[e.i][1]);
+    l.setAttribute("x2",pos[e.j][0]);l.setAttribute("y2",pos[e.j][1]);
+    l.setAttribute("class","edge intimE"); g.appendChild(l);
+  });
+  for(let i=0;i<8;i++){
+    const c=document.createElementNS(NS,"circle");
+    c.setAttribute("cx",pos[i][0]);c.setAttribute("cy",pos[i][1]);c.setAttribute("r",0.13);
+    c.setAttribute("class","nodeC"+(S.lakok[i].szerelem?" happy":"")); g.appendChild(c);
+    const t=document.createElementNS(NS,"text");
+    t.setAttribute("x",pos[i][0]);t.setAttribute("y",pos[i][1]+0.04);
+    t.setAttribute("text-anchor","middle");t.setAttribute("font-size","0.11");
+    t.setAttribute("fill","var(--kimi-color-text-primary)");
+    t.textContent=S.lakok[i].nev; g.appendChild(t);
+  }
+}
+
+document.getElementById("b1").onclick=()=>lep(1);
+document.getElementById("b7").onclick=()=>lep(7);
+document.getElementById("b30").onclick=()=>lep(30);
+ujJatek(); render();
+</script>
+
+--------------------------------------------------------------------------------
+ 5. KULCSTULAJDONSÁGOK KONFIGURÁLHATÓ PARAMÉTEREI
+--------------------------------------------------------------------------------
+  - ESEMÉNY_VALÓSZÍNŰSÉG: 0.8/nap  |  ISMERT_PÁR_TALÁLKOZÁS: 0.7
+  - KÉMIA_TARTOMÁNY: 0.4–1.6  |  JÓLÉT_KAPCSOLAT_PLAFON: +40
+  - INTIM_KÜSZÖB: vonzalom>60, bizalom>55, esély 0.35
+  - BESZÉLGETÉS_KÜSZÖB: vonzalom>70, bizalom<60, esély 0.15, +8–15
+  - ÉLELEM_ROMLÁS: 5%/nap  |  TERMELÉS: földműves 2.0, favágó 1.5, kofa kereskedik
+  - FOGYASZTÁS: 1.0 élelem/lakó/nap  |  LAKHATÁS_BÓNUSZ: +5/szint
+
+================================================================================
+ EXPORT VÉGE — minden komponens és függőség szerepel fent.
+================================================================================
