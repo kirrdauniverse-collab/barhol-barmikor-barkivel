@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bárhol Bármikor Bárkivel — Vertikális szelet 0.1</title>
+<style>
+  :root {
+    --panel: rgba(18, 24, 33, 0.92);
+    --panel-szegely: rgba(255, 214, 130, 0.25);
+    --szoveg: #f2e9d8;
+    --halvany: #b8b0a0;
+    --kiemelt: #ffd76e;
+    --rozsa: #e88a9a;
+    --zold: #7ee0a3;
+    --piros: #e66a6a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #101820; color: var(--szoveg);
+  }
+  #vaszon { position: fixed; inset: 0; display: block; touch-action: none; cursor: grab; }
+  #vaszon:active { cursor: grabbing; }
+  .rejtett { display: none !important; }
+
+  /* --- felső sáv --- */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--panel-szegely);
+    font-size: 14px;
+  }
+  #topbar .logo { font-weight: 700; color: var(--kiemelt); margin-right: 6px; white-space: nowrap; }
+  #topbar .stat { background: rgba(255,255,255,0.06); border-radius: 8px; padding: 4px 10px; white-space: nowrap; }
+  #topbar .gombok { display: flex; gap: 6px; margin-left: auto; }
+  #topbar button {
+    background: rgba(255,255,255,0.08); color: var(--szoveg);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 8px;
+    padding: 5px 10px; cursor: pointer; font-size: 14px;
+  }
+  #topbar button:hover { background: rgba(255,255,255,0.16); }
+  #topbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #topbar button.aktiv { background: var(--kiemelt); color: #1a1408; }
+  #sebesseg { display: flex; gap: 4px; }
+
+  /* --- építés panel --- */
+  #epites-panel {
+    position: fixed; top: 52px; left: 10px; z-index: 15;
+    background: var(--panel); border: 1px solid var(--panel-szegely);
+    border-radius: 12px; padding: 10px; width: 210px;
+  }
+  #epites-panel h3 { font-size: 13px; color: var(--halvany); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .epites-g {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    background: rgba(255,255,255,0.06); color: var(--szoveg);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+    padding: 7px 8px; margin-bottom: 6px; cursor: pointer; font-size: 13px; text-align: left;
+  }
+  .epites-g:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+  .epites-g:disabled { opacity: 0.45; cursor: not-allowed; }
+  .epites-g .koltseg { color: var(--kiemelt); margin-left: auto; }
+  .epites-g .darab { color: var(--halvany); font-size: 11px; }
+  #epites-tippek {
+    position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
+    z-index: 25; background: rgba(232,217,160,0.95); color: #1a1408;
+    padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 600;
+  }
+
+  /* --- jobb oldali panel --- */
+  #oldal-panel {
+    position: fixed; top: 52px; right: 10px; z-index: 15;
+    width: 280px; max-height: calc(100vh - 130px);
+    background: var(--panel); border: 1px solid var(--panel-szegely);
+    border-radius: 12px; display: flex; flex-direction: column;
+  }
+  .fulek { display: flex; border-bottom: 1px solid rgba(255,255,255,0.1); }
+  .fulek button {
+    flex: 1; background: none; border: none; color: var(--halvany);
+    padding: 9px; cursor: pointer; font-size: 13px;
+  }
+  .fulek button.aktiv { color: var(--kiemelt); border-bottom: 2px solid var(--kiemelt); }
+  .ful-tartalom { overflow-y: auto; padding: 8px; font-size: 12.5px; flex: 1; }
+  #kronika-lista::-webkit-scrollbar, .ful-tartalom::-webkit-scrollbar { width: 6px; }
+  .ful-tartalom::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+  .kronika-sor { padding: 5px 6px; border-left: 3px solid #888; margin-bottom: 4px; background: rgba(255,255,255,0.04); border-radius: 0 6px 6px 0; line-height: 1.4; }
+  .kronika-szerelem { border-color: var(--rozsa); }
+  .kronika-drama { border-color: var(--piros); }
+  .kronika-epites { border-color: #d9a05f; }
+  .kronika-tech { border-color: #7ec8e0; }
+  .kronika-szuletes { border-color: #f7b3d0; }
+  .kronika-esemeny { border-color: var(--kiemelt); }
+  .lako-sor { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  .lako-sor:hover { background: rgba(255,255,255,0.1); }
+  .lako-sor.kijelolt { background: rgba(255,215,110,0.18); }
+
+  /* --- lakó kártya --- */
+  #kartya {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 20; width: min(480px, calc(100vw - 20px));
+    background: var(--panel); border: 1px solid var(--panel-szegely);
+    border-radius: 12px; padding: 12px; font-size: 13px;
+  }
+  .kartya-fej { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 15px; }
+  .kartya-fej button { background: none; border: none; color: var(--halvany); font-size: 18px; cursor: pointer; }
+  .cimkek { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .cimke { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 2px 9px; font-size: 11.5px; color: var(--halvany); }
+  .igeny-sor { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .igeny-sor span { width: 92px; color: var(--halvany); font-size: 12px; }
+  .igeny-sor b { width: 30px; text-align: right; font-size: 12px; }
+  .igeny-bar { flex: 1; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+  .igeny-bar div { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .kartya-statusz { margin-top: 8px; color: var(--halvany); }
+  .kartya-gombok { margin-top: 8px; display: flex; gap: 8px; }
+  .kartya-gombok button {
+    background: rgba(255,255,255,0.1); color: var(--szoveg);
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+
+  /* --- toastok --- */
+  #toastek {
+    position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
+    z-index: 40; display: flex; flex-direction: column; gap: 6px; align-items: center;
+    pointer-events: none; width: min(480px, calc(100vw - 20px));
+  }
+  .toast {
+    background: rgba(18,24,33,0.95); border: 1px solid var(--panel-szegely);
+    border-radius: 20px; padding: 8px 16px; font-size: 13.5px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); transition: opacity 0.6s;
+    text-align: center;
+  }
+  .toast.elhal { opacity: 0; }
+
+  /* --- sötét fátyol --- */
+  #fekete-fedeles {
+    position: fixed; inset: 0; z-index: 60; background: #000;
+    opacity: 0; pointer-events: none; transition: opacity 0.8s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #fekete-fedeles.lathato { opacity: 0.94; }
+  #fekete-szoveg { color: #e8b4c4; font-size: clamp(16px, 3vw, 22px); font-style: italic; text-align: center; padding: 0 20px; }
+
+  /* --- cím képernyő --- */
+  #cim-kepernyo {
+    position: fixed; inset: 0; z-index: 70;
+    background: radial-gradient(ellipse at center, #24304a 0%, #101820 75%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 20px;
+  }
+  #cim-kepernyo h1 { font-size: clamp(24px, 6vw, 44px); color: var(--kiemelt); margin-bottom: 10px; }
+  #cim-kepernyo p { max-width: 560px; line-height: 1.6; color: var(--halvany); margin-bottom: 8px; }
+  #g-inditas {
+    margin: 18px 0; background: var(--rozsa); color: #2a0e14;
+    border: none; border-radius: 30px; padding: 14px 38px;
+    font-size: 18px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(232,138,154,0.4);
+  }
+  #g-inditas:hover { transform: scale(1.04); }
+  #cim-kepernyo .kicsi { font-size: 11.5px; opacity: 0.7; }
+
+  /* --- modálok --- */
+  #moddal-reteg {
+    position: fixed; inset: 0; z-index: 65; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .moddal {
+    background: #18202c; border: 1px solid var(--panel-szegely);
+    border-radius: 14px; width: min(520px, 100%); max-height: 80vh;
+    overflow-y: auto; padding: 18px;
+  }
+  .moddal h2 { font-size: 17px; color: var(--kiemelt); margin-bottom: 12px; }
+  .moddal .zar-gomb { float: right; background: none; border: none; color: var(--halvany); font-size: 20px; cursor: pointer; }
+  .tech-sor { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .tech-sor div { flex: 1; }
+  .tech-sor p { color: var(--halvany); font-size: 12.5px; margin-top: 3px; line-height: 1.4; }
+  .tech-sor button {
+    background: var(--kiemelt); color: #1a1408; border: none;
+    border-radius: 8px; padding: 7px 12px; cursor: pointer; font-weight: 700; white-space: nowrap;
+  }
+  .tech-sor button:disabled { opacity: 0.4; }
+  .tech-kesz { color: var(--zold); font-weight: 700; white-space: nowrap; }
+  .beall-sor { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; }
+  .segits-sor { margin-bottom: 10px; line-height: 1.55; font-size: 13.5px; color: var(--halvany); }
+  .segits-sor b { color: var(--szoveg); }
+
+  /* --- mobilon --- */
+  @media (max-width: 760px) {
+    #epites-panel { top: auto; bottom: 10px; left: 10px; width: 46%; max-width: 200px; }
+    #oldal-panel { width: min(280px, 60vw); }
+    .stat { font-size: 12px !important; padding: 3px 7px !important; }
+    #topbar .logo { font-size: 12px; }
+    #kartya { bottom: auto; top: 50%; transform: translate(-50%, -50%); }
+    .igeny-sor span { width: 80px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="vaszon"></canvas>
+
+<div id="topbar">
+  <span class="logo">🌙 BBB</span>
+  <span class="stat" id="stat-nap">📅 1. nap 08:00</span>
+  <span class="stat" id="stat-inspiracio">✨ 120</span>
+  <span class="stat" id="stat-feszultseg">🌫️ 10/100</span>
+  <span class="stat" id="stat-lakos">👥 20</span>
+  <div class="gombok">
+    <button id="g-fesztival" title="Fesztivál">🎪</button>
+    <button id="g-tech">🔬 Technológia</button>
+    <button id="g-beallitasok" title="Beállítások">⚙️</button>
+    <button id="g-segites" title="Súgó">❓</button>
+  </div>
+  <div id="sebesseg">
+    <button data-s="0" title="Szünet">⏸</button><button data-s="1" class="aktiv" title="Normál">▶</button><button data-s="3" title="Gyors">⏩</button>
+  </div>
+</div>
+
+<div id="epites-panel">
+  <h3>Építés ✨</h3>
+  <div id="epites-lista"></div>
+</div>
+<div id="epites-tippek" class="rejtett"></div>
+
+<div id="oldal-panel">
+  <div class="fulek">
+    <button data-ful="kronika" class="aktiv">📜 Krónika</button>
+    <button data-ful="lakok">👥 Lakók</button>
+  </div>
+  <div id="kronika-lista" class="ful-tartalom"></div>
+  <div id="lakok-lista" class="ful-tartalom rejtett"></div>
+</div>
+
+<div id="kartya" class="rejtett"></div>
+<div id="toastek"></div>
+
+<div id="moddal-reteg" class="rejtett">
+  <div id="tech-moddal" class="moddal rejtett">
+    <button class="zar-gomb" data-zar="1">&times;</button>
+    <h2>🔬 Technológiák — Hajnal-kor</h2>
+    <div id="tech-lista"></div>
+  </div>
+  <div id="beallitas-moddal" class="moddal rejtett">
+    <button class="zar-gomb" data-zar="1">&times;</button>
+    <h2>⚙️ Beállítások</h2>
+    <div class="beall-sor"><b style="width:130px">Tartalom erőssége:</b></div>
+    <label class="beall-sor"><input type="radio" name="tartalom" value="romantikus" checked> Romantikus (alap)</label>
+    <label class="beall-sor"><input type="radio" name="tartalom" value="csipos"> Csípős (több dráma, +10% ✨)</label>
+    <label class="beall-sor"><input type="radio" name="tartalom" value="meglepetesmentes"> Meglepetésmentes (féltékenység nélkül)</label>
+    <label class="beall-sor"><input type="checkbox" id="set-nemzedek" checked> Nemzedékek: a párok gyermeket vállalhatnak 👶</label>
+    <label class="beall-sor"><input type="checkbox" id="set-hang" checked> Ambient hang 🔊</label>
+    <p style="color:var(--halvany);font-size:12px;margin-top:10px;line-height:1.5">Minden intim jelenet fade-to-black technikával jelenik meg — sosem látszik semmiexplicit. Lásd: docs/tartalmi-szabalyzat.md</p>
+  </div>
+  <div id="segits-moddal" class="moddal rejtett">
+    <button class="zar-gomb" data-zar="1">&times;</button>
+    <h2>❓ Súgó</h2>
+    <div class="segits-sor"><b>Játékmenet:</b> a lakók igényeit (életerő, higiénia, kapcsolódás, intimitás) a falu helyszínei elégítik ki. A boldog találkozások <b>✨ Inspirációt</b> termelnek, amiből épületsz per technológiát fejleszthetsz. A <b>⚠️ feszültség</b> a féltékenységből és a kielégítetlen igényekből nő — 80 felett sztrájk tör ki!</div>
+    <div class="segits-sor"><b>Irányítás:</b> kattintás = lakó kiválasztása · húzás = mozgás · görgő/csippentés = zoom · 📍Követ = kamera a lakóra rögzül · szóköz = szünet · +/− = zoom · ESC = mégse</div>
+    <div class="segits-sor"><b>Építés:</b> válassz épületet a bal alsó panelen, majd kattints a térképre. A lakóházak helyet adnak a növő lakosságnak!</div>
+    <div class="segits-sor"><b>Krónika:</b> a jobb oldali panel minden fontos eseményt feljegyez — első randik, botrányok, születések.</div>
+  </div>
+</div>
+
+<div id="fekete-fedeles"><div id="fekete-szoveg"></div></div>
+
+<div id="cim-kepernyo">
+  <h1>🌙 Bárhol Bármikor Bárkivel</h1>
+  <p>Életszimulátor arról, hogy a falu motorja a szerelem. Segíts 20 telepesnek boldogulni a Hajnal-korban: építs helyszíneket, hagyj teret a kapcsolatoknak, szüreteld az ✨ Inspirációt — és vigyázz, a féltékenység felégetheti a közösséget!</p>
+  <p style="font-size:13px">Kor: <b>Hajnal-kor</b> · 20 lakó · fade-to-black intimitás · nemzedékek</p>
+  <button id="g-inditas">Ébredj a faluban!</button>
+  <p class="kicsi">Vertikális szelet 0.1 · fikciós prototípus · minden szereplő felnőtt · tartalmi szabályzat: docs/tartalmi-szabalyzat.md</p>
+</div>
+
+<script src="js/sim.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
