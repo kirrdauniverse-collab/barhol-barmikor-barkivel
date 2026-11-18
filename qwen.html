@@ -1,0 +1,356 @@
+    <div class="menu-buttons">
+        <button class="menu-btn" onclick="showScreen('profileScreen')">👽 Új játék</button>
+        <button class="menu-btn" onclick="showMessage('Játék betöltése hamarosan!')">💾 Játék betöltése</button>
+        <button class="menu-btn" onclick="showScreen('profileScreen')">🎭 Profil készítő</button>
+        <button class="menu-btn" onclick="showMessage('Beállítások hamarosan!')">⚙️ Beállítások</button>
+        <button class="menu-btn" onclick="startGame(false)">🌐 Offline játék</button>
+        <button class="menu-btn" onclick="startGame(true)">💬 Online játék</button>
+    </div>
+</div>
+
+<!-- Profil készítő -->
+<div id="profileScreen" class="screen">
+    <button class="back-btn" onclick="showScreen('mainMenu')">← Vissza</button>
+    
+    <div class="profile-form">
+        <h2 style="text-align: center; margin-bottom: 30px;">👽 Alakítsd ki az idegen lényed!</h2>
+        
+        <div class="form-group">
+            <label>Név:</label>
+            <input type="text" id="playerName" placeholder="Pl. Zorblax">
+        </div>
+        
+        <div class="form-group">
+            <label>Kor:</label>
+            <input type="number" id="playerAge" min="18" max="999" value="25">
+        </div>
+        
+        <div class="form-group">
+            <label>Nem:</label>
+            <select id="playerGender">
+                <option value="férfi">Férfi</option>
+                <option value="nő">Nő</option>
+                <option value="nem-bináris">Nem-bináris</option>
+                <option value="folyadék">Folyadék lény</option>
+                <option value="energialény">Energialény</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>Szexuális orientáció:</label>
+            <select id="playerOrientation">
+                <option value="hetero">Hetero</option>
+                <option value="homo">Homo</option>
+                <option value="bi">Bi</option>
+                <option value="pan">Pán</option>
+                <option value="asexual">Asexuális</option>
+                <option value="omni">Omni (mindenre nyitott)</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>Nyitottság (1-10):</label>
+            <div class="slider-container">
+                <input type="range" id="playerOpenness" min="1" max="10" value="7" oninput="updateSliderValue(this)">
+                <span class="slider-value">7</span>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>Vágy:</label>
+            <input type="text" id="playerDesire" placeholder="Pl. Boldogság, Kaland, Szerelem">
+        </div>
+        
+        <button class="menu-btn" style="width: 100%; margin-top: 20px;" onclick="createProfile()">
+            ✨ Profil létrehozása és játék indítása
+        </button>
+    </div>
+</div>
+
+<!-- Játék képernyő -->
+<div id="gameScreen" class="screen">
+    <div class="sidebar">
+        <div class="stats">
+            <h3 style="margin-bottom: 15px;">📊 Város statisztikák</h3>
+            
+            <div class="stat-item">
+                <div class="stat-label">💰 Pénz</div>
+                <div class="stat-value" id="money">10000</div>
+            </div>
+            
+            <div class="stat-item">
+                <div class="stat-label">👥 Lakosok</div>
+                <div class="stat-value" id="population">0</div>
+            </div>
+            
+            <div class="stat-item">
+                <div class="stat-label">❤️ Szexualitási Index</div>
+                <div class="stat-value" id="sexualityIndex">0%</div>
+            </div>
+            
+            <div class="stat-item">
+                <div class="stat-label">😊 Boldogság</div>
+                <div class="stat-value" id="happiness">50%</div>
+            </div>
+        </div>
+        
+        <div class="build-tools">
+            <h3 style="margin-bottom: 15px;">🔨 Építés</h3>
+            <button class="tool-btn" onclick="selectTool('road')">🛣️ Utca</button>
+            <button class="tool-btn" onclick="selectTool('residential')">🏠 Lakóépület</button>
+            <button class="tool-btn" onclick="selectTool('commercial')">🏢 Kereskedelmi</button>
+            <button class="tool-btn" onclick="selectTool('industrial')">🏭 Ipari</button>
+            <button class="tool-btn" onclick="selectTool('public')">🌳 Nyilvános tér</button>
+            <button class="tool-btn" onclick="selectTool('demolish')">💥 Lebontás</button>
+        </div>
+        
+        <div class="citizens-panel">
+            <h3 style="margin-bottom: 15px;">👽 Lakók</h3>
+            <div id="citizensList"></div>
+        </div>
+    </div>
+    
+    <div class="game-area">
+        <div class="city-grid" id="cityGrid"></div>
+    </div>
+</div>
+
+<script>
+    // Játék állapot
+    let gameState = {
+        money: 10000,
+        population: 0,
+        sexualityIndex: 0,
+        happiness: 50,
+        citizens: [],
+        playerProfile: null,
+        currentTool: null,
+        city: Array(100).fill(null)
+    };
+    
+    // Képernyő váltás
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+    
+    // Slider érték frissítése
+    function updateSliderValue(slider) {
+        slider.nextElementSibling.textContent = slider.value;
+    }
+    
+    // Üzenet megjelenítése
+    function showMessage(text) {
+        const msg = document.createElement('div');
+        msg.className = 'message';
+        msg.textContent = text;
+        document.body.appendChild(msg);
+        setTimeout(() => msg.remove(), 3000);
+    }
+    
+    // Profil létrehozása
+    function createProfile() {
+        const name = document.getElementById('playerName').value || 'Zorblax';
+        const age = parseInt(document.getElementById('playerAge').value);
+        const gender = document.getElementById('playerGender').value;
+        const orientation = document.getElementById('playerOrientation').value;
+        const openness = parseInt(document.getElementById('playerOpenness').value);
+        const desire = document.getElementById('playerDesire').value || 'Boldogság';
+        
+        gameState.playerProfile = {
+            name, age, gender, orientation, openness, desire,
+            wealth: 5000,
+            location: null
+        };
+        
+        showMessage(`✨ ${name} profilja létrehozva!`);
+        startGame(false);
+    }
+    
+    // Játék indítása
+    function startGame(online) {
+        if (!gameState.playerProfile) {
+            showMessage('⚠️ Először készíts profilt!');
+            showScreen('profileScreen');
+            return;
+        }
+        
+        showScreen('gameScreen');
+        initCityGrid();
+        
+        // Játékos hozzáadása a lakókhoz
+        addCitizen(gameState.playerProfile);
+        
+        // NPC-k generálása
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => generateNPC(), i * 500);
+        }
+        
+        if (online) {
+            showMessage('💬 Online mód: Más játékosok csatlakozhatnak!');
+        }
+        
+        updateStats();
+    }
+    
+    // Város rács inicializálása
+    function initCityGrid() {
+        const grid = document.getElementById('cityGrid');
+        grid.innerHTML = '';
+        
+        for (let i = 0; i < 100; i++) {
+            const tile = document.createElement('div');
+            tile.className = 'tile';
+            tile.dataset.index = i;
+            tile.onclick = () => placeBuilding(i);
+            grid.appendChild(tile);
+        }
+    }
+    
+    // Épület elhelyezése
+    function placeBuilding(index) {
+        if (!gameState.currentTool) {
+            showMessage('⚠️ Válassz építési eszközt!');
+            return;
+        }
+        
+        const costs = {
+            road: 100,
+            residential: 500,
+            commercial: 800,
+            industrial: 1000,
+            public: 600,
+            demolish: 0
+        };
+        
+        const cost = costs[gameState.currentTool];
+        
+        if (gameState.money < cost) {
+            showMessage('❌ Nincs elég pénzed!');
+            return;
+        }
+        
+        const tile = document.querySelector(`[data-index="${index}"]`);
+        
+        if (gameState.currentTool === 'demolish') {
+            if (gameState.city[index]) {
+                gameState.city[index] = null;
+                tile.className = 'tile';
+                tile.textContent = '';
+                gameState.money += 50; // Bontási bónusz
+            }
+        } else {
+            if (gameState.city[index]) {
+                showMessage('⚠️ Ez a telek már foglalt!');
+                return;
+            }
+            
+            gameState.city[index] = gameState.currentTool;
+            tile.className = `tile ${gameState.currentTool}`;
+            
+            const icons = {
+                road: '🛣️',
+                residential: '🏠',
+                commercial: '🏢',
+                industrial: '🏭',
+                public: '🌳'
+            };
+            tile.textContent = icons[gameState.currentTool];
+            
+            gameState.money -= cost;
+            
+            // Lakosok növelése lakóépületeknél
+            if (gameState.currentTool === 'residential') {
+                gameState.population += 3;
+                setTimeout(() => generateNPC(), 1000);
+            }
+            
+            // Szexualitási Index növelése nyilvános terekkel
+            if (gameState.currentTool === 'public') {
+                gameState.sexualityIndex += 5;
+                gameState.happiness += 3;
+            }
+        }
+        
+        updateStats();
+    }
+    
+    // Eszköz kiválasztása
+    function selectTool(tool) {
+        gameState.currentTool = tool;
+        document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+        showMessage(`🔨 ${tool} kiválasztva`);
+    }
+    
+    // NPC generálása
+    function generateNPC() {
+        const names = ['Xylara', 'Zorblax', 'Nebula', 'Cosmo', 'Stella', 'Orion', 'Luna', 'Nova'];
+        const genders = ['férfi', 'nő', 'nem-bináris', 'folyadék', 'energialény'];
+        const orientations = ['hetero', 'homo', 'bi', 'pan', 'omni'];
+        const desires = ['Szerelem', 'Kaland', 'Boldogság', 'Gazdagság', 'Hírnév'];
+        
+        const npc = {
+            name: names[Math.floor(Math.random() * names.length)],
+            age: Math.floor(Math.random() * 50) + 20,
+            gender: genders[Math.floor(Math.random() * genders.length)],
+            orientation: orientations[Math.floor(Math.random() * orientations.length)],
+            openness: Math.floor(Math.random() * 5) + 5,
+            desire: desires[Math.floor(Math.random() * desires.length)],
+            wealth: Math.floor(Math.random() * 10000),
+            isPlayer: false
+        };
+        
+        addCitizen(npc);
+    }
+    
+    // Lakos hozzáadása
+    function addCitizen(citizen) {
+        gameState.citizens.push(citizen);
+        updateCitizensList();
+        updateStats();
+    }
+    
+    // Lakók listájának frissítése
+    function updateCitizensList() {
+        const list = document.getElementById('citizensList');
+        list.innerHTML = '';
+        
+        gameState.citizens.slice(0, 10).forEach(citizen => {
+            const card = document.createElement('div');
+            card.className = 'citizen-card';
+            card.innerHTML = `
+                <div class="citizen-name">${citizen.name} ${citizen.isPlayer ? '(Te)' : ''}</div>
+                <div class="citizen-stats">
+                    <span>🎂 ${citizen.age}</span>
+                    <span>💰 ${citizen.wealth}</span>
+                    <span>❤️ ${citizen.openness}/10</span>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+    }
+    
+    // Statisztikák frissítése
+    function updateStats() {
+        document.getElementById('money').textContent = gameState.money;
+        document.getElementById('population').textContent = gameState.population;
+        document.getElementById('sexualityIndex').textContent = Math.min(100, gameState.sexualityIndex) + '%';
+        document.getElementById('happiness').textContent = Math.min(100, gameState.happiness) + '%';
+    }
+    
+    // Automatikus NPC viselkedés (szimuláció)
+    setInterval(() => {
+        if (gameState.citizens.length > 1) {
+            // Véletlenszerű interakciók
+            const citizen1 = gameState.citizens[Math.floor(Math.random() * gameState.citizens.length)];
+            const citizen2 = gameState.citizens[Math.floor(Math.random() * gameState.citizens.length)];
+            
+            if (citizen1 !== citizen2 && citizen1.openness > 6 && citizen2.openness > 6) {
+                gameState.happiness += 1;
+                gameState.sexualityIndex += 1;
+                updateStats();
+            }
+        }
+    }, 5000);
+</script>
